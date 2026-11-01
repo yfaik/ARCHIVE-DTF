@@ -1,0 +1,20 @@
+{
+  "short_name": "DTF Benslimane",
+  "name": "Commune de Benslimane - Division Technique et Financière",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0F4C81",
+  "theme_color": "#0F4C81",
+  "display": "standalone"
+}

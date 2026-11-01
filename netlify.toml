@@ -1,0 +1,20 @@
+# Configuration de déploiement Netlify pour le Frontend React / Vite (SPA)
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Redirection de toutes les routes SPA vers index.html pour éviter les erreurs 404 au rechargement
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# En-têtes HTTP de sécurité et performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

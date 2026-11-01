@@ -1,0 +1,50 @@
+{
+  "name": "dtf-benslimane-gestdoc",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev:frontend": "vite",
+    "dev:backend": "node server/index.js",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "seed": "node server/db/seed.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "axios": "^1.6.8",
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "framer-motion": "^11.2.10",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.395.0",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.11.0",
+    "node-cron": "^3.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.51.5",
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^6.23.1",
+    "tailwind-merge": "^2.3.0",
+    "unzipper": "^0.12.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.19",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.2.13"
+  }
+}
