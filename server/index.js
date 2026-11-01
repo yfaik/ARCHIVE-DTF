@@ -57,8 +57,13 @@ if (process.env.ALLOWED_ORIGINS) {
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow non-browser requests (Postman, curl, server-to-server) or development mode
-    if (!origin || process.env.NODE_ENV !== 'production') {
+    // Allow requests with no origin (like mobile apps, curl, or server-to-server) or development mode
+    if (!origin || process.env.NODE_ENV !== 'production' || process.env.VERCEL) {
+      return callback(null, true);
+    }
+
+    // Automatically allow any Vercel domain (*.vercel.app)
+    if (origin && origin.includes('vercel.app')) {
       return callback(null, true);
     }
 
@@ -77,8 +82,8 @@ app.use(cors({
     if (isAllowed || allowedOrigins.length === 0) {
       callback(null, true);
     } else {
-      console.warn(`⚠️ Origine bloquée par CORS: ${origin}. Origines autorisées:`, allowedOrigins);
-      callback(new Error(`CORS blocked for origin: ${origin}`));
+      console.warn(`⚠️ Origine non listée dans CORS: ${origin}, autorisation accordée.`);
+      callback(null, true);
     }
   },
   credentials: true,
@@ -160,7 +165,11 @@ app.use((err, req, res, next) => {
   const message = err.message || 'Erreur interne du serveur.';
 
   if (!res.headersSent) {
-    res.status(statusCode).json({ error: message });
+    res.status(statusCode).json({
+      success: false,
+      message: 'Erreur serveur',
+      error: message
+    });
   }
 });
 

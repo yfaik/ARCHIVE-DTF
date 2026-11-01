@@ -27,12 +27,20 @@ api.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
-// Intercept 401 & 403 authorization responses
+// Intercept 401, 403 & 500 authorization responses
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response ? error.response.status : null;
-    const message = error.response?.data?.error || 'Une erreur est survenue sur le serveur.';
+    const rawMsg = 
+      error.response?.data?.message || 
+      error.response?.data?.error || 
+      error.message || 
+      'Une erreur est survenue sur le serveur.';
+      
+    const message = typeof rawMsg === 'string' 
+      ? rawMsg 
+      : (typeof rawMsg === 'object' ? (rawMsg.message || rawMsg.error || JSON.stringify(rawMsg)) : String(rawMsg));
 
     if (status === 401) {
       localStorage.removeItem('dtf_jwt_token');
@@ -42,7 +50,9 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     } else if (status === 403) {
-      toast.error(message || 'Permissions insuffisantes.');
+      toast.error(String(message || 'Permissions insuffisantes.'));
+    } else if (status === 500) {
+      console.error('❌ [API 500 Internal Server Error]:', error.response?.data || error.message);
     }
 
     return Promise.reject(error);

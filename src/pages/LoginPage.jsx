@@ -15,22 +15,50 @@ export const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Safe setter that guarantees errorMsg state is STRICTLY a string (prevents React Minified Error #31)
+  const setSafeErrorMsg = (err) => {
+    if (!err) {
+      setErrorMsg('');
+      return;
+    }
+    if (typeof err === 'string') {
+      setErrorMsg(err);
+      return;
+    }
+    const extracted = 
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.data?.message ||
+      err.data?.error ||
+      err.message ||
+      (typeof err === 'object' ? (err.message || err.error || JSON.stringify(err)) : String(err));
+    setErrorMsg(String(extracted || 'Une erreur est survenue lors de la connexion.'));
+  };
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    setErrorMsg('');
+    setSafeErrorMsg('');
     if (!username.trim() || !password) {
-      setErrorMsg('Veuillez saisir votre identifiant et votre mot de passe.');
+      setSafeErrorMsg('Veuillez saisir votre identifiant et votre mot de passe.');
       return;
     }
 
     setLoading(true);
-    const success = await login(username.trim(), password);
-    setLoading(false);
+    try {
+      const result = await login(username.trim(), password);
+      setLoading(false);
 
-    if (success) {
-      navigate('/dashboard');
-    } else {
-      setErrorMsg('Identifiant ou mot de passe incorrect.');
+      if (result === true || result?.success) {
+        navigate('/dashboard');
+      } else {
+        const errorText = typeof result?.error === 'string'
+          ? result.error
+          : (typeof result === 'string' ? result : 'Identifiant ou mot de passe incorrect.');
+        setSafeErrorMsg(errorText);
+      }
+    } catch (err) {
+      setLoading(false);
+      setSafeErrorMsg(err);
     }
   };
 
@@ -64,7 +92,7 @@ export const LoginPage = () => {
         <div className="flex flex-col items-center text-center mb-6">
           <span className="text-[10px] font-extrabold uppercase tracking-widest text-surface-500 dark:text-emerald-400 mb-2 flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-primary-600 dark:text-emerald-400" />
-           
+            Portail Officiel Sécurisé
           </span>
 
           {/* Official Emblem Logo */}
@@ -91,18 +119,21 @@ export const LoginPage = () => {
           <h2 className="text-sm font-bold text-surface-800 dark:text-surface-100">
             Gestion Documentaire
           </h2>
-         
         </div>
 
-        {/* Error Banner */}
-        {errorMsg && (
+        {/* Error Banner (Inline Alert guaranteed to strictly render strings) */}
+        {Boolean(errorMsg) && (
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-4 p-3 rounded-md bg-danger-50 dark:bg-danger-950/60 border border-danger-200 dark:border-danger-800 text-danger-800 dark:text-danger-300 text-xs font-semibold flex items-center gap-2"
           >
             <AlertCircle className="w-4 h-4 text-danger-600 dark:text-danger-400 shrink-0" />
-            <span>{errorMsg}</span>
+            <span>
+              {typeof errorMsg === 'string'
+                ? errorMsg
+                : String(errorMsg?.message || errorMsg?.error || 'Une erreur est survenue.')}
+            </span>
           </motion.div>
         )}
 

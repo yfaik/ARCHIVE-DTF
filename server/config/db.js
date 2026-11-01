@@ -52,15 +52,17 @@ export function convertQuestionMarksToDollars(sql) {
  */
 async function initPostgreSQL() {
   try {
-    const connectionUri = 
+    const rawUri = 
       process.env.DATABASE_URL || 
       process.env.POSTGRES_URL || 
       process.env.NEON_DATABASE_URL || 
       process.env.DB_URI;
 
+    const connectionUri = rawUri ? String(rawUri).trim().replace(/^['"]|['"]$/g, '') : null;
+
     let poolConfig = {
-      max: 15,
-      idleTimeoutMillis: 30000,
+      max: process.env.VERCEL ? 5 : 10,
+      idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 10000
     };
 
@@ -71,7 +73,12 @@ async function initPostgreSQL() {
       // Always enable SSL with rejectUnauthorized: false for Neon Tech & cloud PostgreSQL
       poolConfig.ssl = { rejectUnauthorized: false };
     } else {
-      console.log('🏠 Connexion PostgreSQL via variables séparées (Host, Port, User, DB)...');
+      if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+        console.error('❌ [DATABASE CONFIG ERROR]: Variable DATABASE_URL manquante dans l environnement Vercel / Production !');
+        throw new Error("Variable d'environnement DATABASE_URL manquante. Veuillez la configurer dans le tableau de bord Vercel.");
+      }
+
+      console.log('🏠 Connexion PostgreSQL via variables séparées locales...');
       const DB_HOST = process.env.DB_HOST || process.env.PGHOST || 'localhost';
       const DB_PORT = parseInt(process.env.DB_PORT || process.env.PGPORT || '5432', 10);
       const DB_USER = process.env.DB_USER || process.env.DB_USERNAME || process.env.PGUSER || 'postgres';
@@ -90,50 +97,54 @@ async function initPostgreSQL() {
       }
     }
 
-    pool = new Pool(poolConfig);
+    const newPool = new Pool(poolConfig);
 
-    pool.on('error', (err) => {
-      console.error('⚠️ Erreur inattendue sur le pool de clients PostgreSQL idle:', err);
+    newPool.on('error', (err) => {
+      console.error('⚠️ [PG POOL ERROR] Erreur inattendue sur client PostgreSQL idle:', err);
     });
 
-    // Test connection
-    const client = await pool.connect();
+    // Test connection with timeout
+    const client = await newPool.connect();
     try {
       const res = await client.query('SELECT current_database(), current_user, version()');
       const info = res.rows[0];
-      console.log(`✅ Pool de connexions PostgreSQL / Neon établi avec succès.`);
-      console.log(`📌 Base active: ${info.current_database} | Utilisateur: ${info.current_user}`);
+      console.log(`✅ Connexion PostgreSQL / Neon établie avec succès.`);
+      console.log(`📌 Base active: ${info?.current_database} | Utilisateur: ${info?.current_user}`);
     } finally {
       client.release();
     }
 
-    // Auto-verify / create schema if tables don't exist yet
-    try {
-      const checkTables = await pool.query(
-        "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users'"
-      );
-      const tableCount = parseInt(checkTables.rows[0]?.count || 0, 10);
+    // Set active pool only after successful test
+    pool = newPool;
 
-      if (tableCount === 0) {
-        console.log('🌱 Initialisation du schéma PostgreSQL / Neon depuis schema.sql...');
-        const schemaPath = path.join(__dirname, '../db/schema.sql');
-        const neonSchemaPath = path.join(__dirname, '../../neon_schema.sql');
-        const targetPath = fs.existsSync(neonSchemaPath) ? neonSchemaPath : schemaPath;
+    // Auto-verify / create schema if tables don't exist yet (skip in serverless cold starts if not required)
+    if (!process.env.VERCEL) {
+      try {
+        const checkTables = await pool.query(
+          "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users'"
+        );
+        const tableCount = parseInt(checkTables.rows[0]?.count || 0, 10);
 
-        if (fs.existsSync(targetPath)) {
-          const schemaSql = fs.readFileSync(targetPath, 'utf8');
-          await pool.query(schemaSql);
-          console.log('✨ Schéma PostgreSQL / Neon créé et seedé avec succès.');
+        if (tableCount === 0) {
+          console.log('🌱 Initialisation du schéma PostgreSQL / Neon depuis schema.sql...');
+          const schemaPath = path.join(__dirname, '../db/schema.sql');
+          const neonSchemaPath = path.join(__dirname, '../../neon_schema.sql');
+          const targetPath = fs.existsSync(neonSchemaPath) ? neonSchemaPath : schemaPath;
+
+          if (fs.existsSync(targetPath)) {
+            const schemaSql = fs.readFileSync(targetPath, 'utf8');
+            await pool.query(schemaSql);
+            console.log('✨ Schéma PostgreSQL / Neon créé et seedé avec succès.');
+          }
         }
-      } else {
-        console.log('✨ Tables PostgreSQL vérifiées et prêtes.');
+      } catch (schemaErr) {
+        console.warn('ℹ️ Notification vérification schéma PostgreSQL:', schemaErr.message);
       }
-    } catch (schemaErr) {
-      console.warn('ℹ️ Notification vérification schéma PostgreSQL:', schemaErr.message);
     }
 
   } catch (err) {
-    console.error('⚠️ Erreur de connexion PostgreSQL / Neon:', err.message);
+    pool = null; // Reset pool on error to allow clean retries on next request
+    console.error('❌ [DATABASE INIT ERROR] Échec d initialisation PostgreSQL / Neon:', err.message);
     throw err;
   }
 }

@@ -6,8 +6,12 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('dtf_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('dtf_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
   });
   const [loading, setLoading] = useState(true);
 
@@ -17,8 +21,10 @@ export const AuthProvider = ({ children }) => {
       if (token) {
         try {
           const res = await api.get('/auth/me');
-          setUser(res.data.user);
-          localStorage.setItem('dtf_user', JSON.stringify(res.data.user));
+          if (res.data?.user) {
+            setUser(res.data.user);
+            localStorage.setItem('dtf_user', JSON.stringify(res.data.user));
+          }
         } catch (e) {
           setUser(null);
           localStorage.removeItem('dtf_jwt_token');
@@ -33,16 +39,26 @@ export const AuthProvider = ({ children }) => {
   const login = async (loginId, password) => {
     try {
       const res = await api.post('/auth/login', { login: loginId, password });
-      const { token, user: userData } = res.data;
+      const { token, user: userData } = res.data || {};
       
+      if (!token || !userData) {
+        throw new Error('Réponse de connexion invalide du serveur.');
+      }
+
       localStorage.setItem('dtf_jwt_token', token);
       localStorage.setItem('dtf_user', JSON.stringify(userData));
       setUser(userData);
-      toast.success(`Bienvenue, ${userData.name}!`);
-      return true;
+      toast.success(`Bienvenue, ${userData.name || userData.login}!`);
+      return { success: true, user: userData };
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Identifiants incorrects.');
-      return false;
+      const errorMsg = String(
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        'Identifiant ou mot de passe incorrect.'
+      );
+      toast.error(errorMsg);
+      return { success: false, error: errorMsg };
     }
   };
 
@@ -50,7 +66,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await api.post('/auth/logout');
     } catch (e) {
-      // Ignore
+      // Ignore network errors on logout
     } finally {
       localStorage.removeItem('dtf_jwt_token');
       localStorage.removeItem('dtf_user');
