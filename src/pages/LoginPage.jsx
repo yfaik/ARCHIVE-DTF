@@ -6,23 +6,23 @@ import { motion } from 'framer-motion';
 import { Spinner } from '../components/common/Spinner';
 
 export const LoginPage = () => {
-  const { login } = useAuth();
+  const { login: performLogin } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('Password123!');
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Safe setter that guarantees errorMsg state is STRICTLY a string (prevents React Minified Error #31)
+  // Safe setter that guarantees errorMsg state is STRICTLY a non-empty string
   const setSafeErrorMsg = (err) => {
     if (!err) {
       setErrorMsg('');
       return;
     }
     if (typeof err === 'string') {
-      setErrorMsg(err);
+      setErrorMsg(err.trim());
       return;
     }
     const extracted = 
@@ -31,21 +31,22 @@ export const LoginPage = () => {
       err.data?.message ||
       err.data?.error ||
       err.message ||
-      (typeof err === 'object' ? (err.message || err.error || JSON.stringify(err)) : String(err));
-    setErrorMsg(String(extracted || 'Une erreur est survenue lors de la connexion.'));
+      (typeof err === 'object' ? (err.message || err.error) : String(err));
+    const finalMsg = String(extracted || 'Une erreur est survenue lors de la connexion.').trim();
+    setErrorMsg(finalMsg);
   };
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setSafeErrorMsg('');
-    if (!username.trim() || !password) {
+    if (!login.trim() || !password) {
       setSafeErrorMsg('Veuillez saisir votre identifiant et votre mot de passe.');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await login(username.trim(), password);
+      const result = await performLogin(login.trim(), password);
       setLoading(false);
 
       if (result === true || result?.success) {
@@ -121,19 +122,15 @@ export const LoginPage = () => {
           </h2>
         </div>
 
-        {/* Error Banner (Inline Alert guaranteed to strictly render strings) */}
-        {Boolean(errorMsg) && (
+        {/* Error Banner (Inline Alert rendered only when non-empty string exists) */}
+        {errorMsg && typeof errorMsg === 'string' && errorMsg.trim().length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-4 p-3 rounded-md bg-danger-50 dark:bg-danger-950/60 border border-danger-200 dark:border-danger-800 text-danger-800 dark:text-danger-300 text-xs font-semibold flex items-center gap-2"
           >
             <AlertCircle className="w-4 h-4 text-danger-600 dark:text-danger-400 shrink-0" />
-            <span>
-              {typeof errorMsg === 'string'
-                ? errorMsg
-                : String(errorMsg?.message || errorMsg?.error || 'Une erreur est survenue.')}
-            </span>
+            <span>{errorMsg}</span>
           </motion.div>
         )}
 
@@ -153,9 +150,14 @@ export const LoginPage = () => {
               </div>
               <input
                 id="username-input"
+                name="username"
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={login}
+                onChange={(e) => {
+                  setLogin(e.target.value);
+                  if (errorMsg) setErrorMsg('');
+                }}
+                autoComplete="username"
                 required
                 placeholder="Entrez votre identifiant"
                 className="w-full pl-10 pr-4 py-2.5 rounded bg-surface-50 dark:bg-[#132E27] border border-surface-300 dark:border-[#20493E] text-surface-900 dark:text-surface-50 text-sm font-semibold placeholder-surface-400 dark:placeholder-surface-400 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 dark:focus:ring-emerald-400/30 dark:focus:border-emerald-400"
@@ -177,9 +179,14 @@ export const LoginPage = () => {
               </div>
               <input
                 id="password-input"
+                name="password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errorMsg) setErrorMsg('');
+                }}
+                autoComplete="current-password"
                 required
                 placeholder="••••••••"
                 className="w-full pl-10 pr-10 py-2.5 rounded bg-surface-50 dark:bg-[#132E27] border border-surface-300 dark:border-[#20493E] text-surface-900 dark:text-surface-50 text-sm font-semibold placeholder-surface-400 dark:placeholder-surface-400 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 dark:focus:ring-emerald-400/30 dark:focus:border-emerald-400"
