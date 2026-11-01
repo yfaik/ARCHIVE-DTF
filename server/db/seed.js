@@ -9,8 +9,8 @@ const __dirname = path.dirname(__filename);
 
 export async function logUsersTable() {
   try {
-    const users = await db.all('SELECT login, active, role FROM users ORDER BY id ASC');
-    console.log('📋 [DATABASE CHECK] Registered Users (SELECT login, active, role FROM users):');
+    const users = await db.all('SELECT login, active, role, service FROM users ORDER BY id ASC');
+    console.log('📋 [DATABASE CHECK] Registered Users in PostgreSQL / Neon:');
     if (console.table) {
       console.table(users);
     } else {
@@ -22,10 +22,10 @@ export async function logUsersTable() {
 }
 
 /**
- * Initialisation de la base de données (Seeding MySQL).
+ * Initialisation de la base de données (Seeding PostgreSQL / Neon).
  */
 export async function seedDatabase() {
-  console.log('🌱 Vérification de l état de la base MySQL pour la première installation...');
+  console.log('🌱 Vérification de l état de la base PostgreSQL / Neon...');
 
   // Ensure upload directory exists
   const uploadDir = path.join(__dirname, '../uploads/pdfs');
@@ -92,6 +92,22 @@ startxref
     fs.writeFileSync(dummyPdfPath, dummyPdfContent);
   }
 
+  // Ensure initial services exist
+  try {
+    await db.query(`
+      INSERT INTO services (id, nom, code) VALUES
+        (1, 'Service Technique', 'TECH'),
+        (2, 'Service Financier', 'FIN'),
+        (3, 'Service Comptabilité', 'COMPTA'),
+        (4, 'Chef de Division', 'CHEF')
+      ON CONFLICT (id) DO UPDATE SET
+        nom = EXCLUDED.nom,
+        code = EXCLUDED.code;
+    `);
+  } catch (servErr) {
+    console.warn('⚠️ Seeding services notice:', servErr.message);
+  }
+
   // Hash default passwords (password: "Password123!")
   const passwordHash = await bcrypt.hash('Password123!', 10);
 
@@ -139,20 +155,17 @@ startxref
   ];
 
   try {
-    const userCountRes = await db.get('SELECT COUNT(*) as count FROM users');
-    const count = parseInt(userCountRes?.count || 0, 10);
-    
     console.log('📌 Vérification et initialisation des comptes utilisateurs par défaut...');
     for (const u of usersToInsert) {
       await db.query(
         `INSERT INTO users (login, password_hash, name, role, service, active) 
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-         password_hash = VALUES(password_hash),
-         name = VALUES(name),
-         role = VALUES(role),
-         service = VALUES(service),
-         active = VALUES(active)`,
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (login) DO UPDATE SET
+           password_hash = EXCLUDED.password_hash,
+           name = EXCLUDED.name,
+           role = EXCLUDED.role,
+           service = EXCLUDED.service,
+           active = EXCLUDED.active`,
         [u.login, u.password_hash, u.name, u.role, u.service, u.active]
       );
     }
@@ -171,7 +184,7 @@ if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
       process.exit(0);
     })
     .catch(err => {
-      console.error('❌ Erreur lors du seeding MySQL:', err);
+      console.error('❌ Erreur lors du seeding PostgreSQL / Neon:', err);
       process.exit(1);
     });
 }

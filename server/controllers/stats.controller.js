@@ -3,13 +3,13 @@ import db from '../config/db.js';
 function buildDateCondition(dateColumn, period) {
   switch (period) {
     case 'today':
-      return `${dateColumn} = CURDATE()`;
+      return `${dateColumn} = CURRENT_DATE`;
     case 'week':
-      return `YEARWEEK(${dateColumn}, 1) = YEARWEEK(CURDATE(), 1)`;
+      return `DATE_TRUNC('week', ${dateColumn}::timestamp) = DATE_TRUNC('week', CURRENT_DATE::timestamp)`;
     case 'month':
-      return `YEAR(${dateColumn}) = YEAR(CURDATE()) AND MONTH(${dateColumn}) = MONTH(CURDATE())`;
+      return `DATE_TRUNC('month', ${dateColumn}::timestamp) = DATE_TRUNC('month', CURRENT_DATE::timestamp)`;
     case 'year':
-      return `YEAR(${dateColumn}) = YEAR(CURDATE())`;
+      return `DATE_TRUNC('year', ${dateColumn}::timestamp) = DATE_TRUNC('year', CURRENT_DATE::timestamp)`;
     case 'total':
     default:
       return '1=1';
@@ -30,7 +30,7 @@ export async function getDashboardStats(req, res) {
     let params = [];
 
     if (isServiceUser) {
-      baseWhere += ` AND service_destinataire = ?`;
+      baseWhere += ` AND service_destinataire = $1`;
       params.push(serviceFilter);
     }
 
@@ -73,7 +73,7 @@ export async function getDashboardStats(req, res) {
         `SELECT COUNT(*) as count 
          FROM courriers_departs c 
          LEFT JOIN services s ON c.service_expediteur_id = s.id 
-         WHERE ${departsCondition} AND (s.nom = ? OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = ? LIMIT 1))`,
+         WHERE ${departsCondition} AND (s.nom = $1 OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = $2 LIMIT 1))`,
         [serviceFilter, serviceFilter]
       );
       totalDeparts = parseInt(resDeparts?.count || 0, 10);
@@ -131,7 +131,7 @@ export async function getDashboardStats(req, res) {
       recentActivity
     });
   } catch (err) {
-    console.error('Erreur getDashboardStats MySQL:', err);
+    console.error('Erreur getDashboardStats PostgreSQL:', err);
     res.status(500).json({ error: 'Erreur lors de la génération des statistiques du tableau de bord.' });
   }
 }

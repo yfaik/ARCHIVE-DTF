@@ -20,10 +20,10 @@ export async function login(req, res) {
     }
 
     const cleanLogin = String(login).trim();
-    const user = await db.get('SELECT * FROM users WHERE LOWER(login) = LOWER(?)', [cleanLogin]);
+    const user = await db.get('SELECT * FROM users WHERE LOWER(login) = LOWER($1)', [cleanLogin]);
 
     if (!user) {
-      console.log(`❌ User Search Result: NOT FOUND in MySQL database for login "${cleanLogin}".`);
+      console.log(`❌ User Search Result: NOT FOUND in PostgreSQL/Neon database for login "${cleanLogin}".`);
       console.log(`📤 Returned Response: 401 Unauthorized`);
       console.log('===================================================================\n');
       return res.status(401).json({ error: 'Identifiants incorrects.' });
@@ -80,7 +80,7 @@ export async function login(req, res) {
       user: userPayload
     });
   } catch (err) {
-    console.error('❌ Erreur de connexion MySQL ou d authentification backend:', err);
+    console.error('❌ Erreur de connexion PostgreSQL/Neon ou d authentification backend:', err);
     res.status(500).json({ error: 'Erreur interne du serveur lors de la connexion.', details: err.message });
   }
 }
@@ -97,8 +97,4 @@ export async function logout(req, res) {
   } catch (err) {
     res.status(500).json({ error: 'Erreur lors de la déconnexion.' });
   }
-}
-
-export async function getMe(req, res) {
-  res.json({ user: req.user });
 }

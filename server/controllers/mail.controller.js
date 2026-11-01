@@ -16,13 +16,13 @@ const __dirname = path.dirname(__filename);
 function buildDateCondition(dateColumn, period) {
   switch (period) {
     case 'today':
-      return `${dateColumn} = CURDATE()`;
+      return `${dateColumn} = CURRENT_DATE`;
     case 'week':
-      return `YEARWEEK(${dateColumn}, 1) = YEARWEEK(CURDATE(), 1)`;
+      return `DATE_TRUNC('week', ${dateColumn}::timestamp) = DATE_TRUNC('week', CURRENT_DATE::timestamp)`;
     case 'month':
-      return `YEAR(${dateColumn}) = YEAR(CURDATE()) AND MONTH(${dateColumn}) = MONTH(CURDATE())`;
+      return `DATE_TRUNC('month', ${dateColumn}::timestamp) = DATE_TRUNC('month', CURRENT_DATE::timestamp)`;
     case 'year':
-      return `YEAR(${dateColumn}) = YEAR(CURDATE())`;
+      return `DATE_TRUNC('year', ${dateColumn}::timestamp) = DATE_TRUNC('year', CURRENT_DATE::timestamp)`;
     case 'total':
     default:
       return '1=1';
@@ -34,6 +34,7 @@ export async function getCourriersArrives(req, res) {
     const { search, date_from, date_to, service, status, period, priorite } = req.query;
     let sql = `SELECT c.*, u.name as creator_name FROM courriers_arrives c LEFT JOIN users u ON c.created_by = u.id WHERE 1=1`;
     const params = [];
+    let pIdx = 1;
 
     if (period && period !== 'total') {
       const dateCond = buildDateCondition('c.date_arrivee', period);
@@ -43,18 +44,18 @@ export async function getCourriersArrives(req, res) {
     // Filter by priority ('Normal', 'Urgent', 'Très Urgent')
     if (priorite && ['Normal', 'Urgent', 'Très Urgent'].includes(priorite.trim())) {
       params.push(priorite.trim());
-      sql += ` AND c.priorite = ?`;
+      sql += ` AND c.priorite = $${pIdx++}`;
     }
 
     // Service isolation for USER_SERVICE:
     // Destination services see all courriers assigned to their service that have been transmitted
     if (req.user.role === 'USER_SERVICE') {
       params.push(req.user.service);
-      sql += ` AND c.service_destinataire = ?`;
+      sql += ` AND c.service_destinataire = $${pIdx++}`;
       sql += ` AND UPPER(c.statut) != 'NOUVEAU'`;
     } else if (service) {
       params.push(service);
-      sql += ` AND c.service_destinataire = ?`;
+      sql += ` AND c.service_destinataire = $${pIdx++}`;
     }
 
     if (status) {
@@ -66,25 +67,28 @@ export async function getCourriersArrives(req, res) {
       else if (upper.includes('TRANSMIS')) matchVals = ['Transmis', 'TRANSMIS'];
       else if (upper.includes('NOUVEAU')) matchVals = ['Nouveau', 'NOUVEAU'];
 
-      const placeholders = matchVals.map(() => '?').join(', ');
+      const placeholders = matchVals.map(() => `$${pIdx++}`).join(', ');
       params.push(...matchVals);
       sql += ` AND c.statut IN (${placeholders})`;
     }
 
     if (search) {
       const searchPattern = `%${search}%`;
+      const p1 = pIdx++;
+      const p2 = pIdx++;
+      const p3 = pIdx++;
       params.push(searchPattern, searchPattern, searchPattern);
-      sql += ` AND (c.reference LIKE ? OR c.objet LIKE ? OR c.expediteur LIKE ?)`;
+      sql += ` AND (c.reference ILIKE $${p1} OR c.objet ILIKE $${p2} OR c.expediteur ILIKE $${p3})`;
     }
 
     if (date_from) {
       params.push(date_from);
-      sql += ` AND c.date_arrivee >= ?`;
+      sql += ` AND c.date_arrivee >= $${pIdx++}`;
     }
 
     if (date_to) {
       params.push(date_to);
-      sql += ` AND c.date_arrivee <= ?`;
+      sql += ` AND c.date_arrivee <= $${pIdx++}`;
     }
 
     sql += ` ORDER BY c.created_at DESC`;
@@ -92,7 +96,7 @@ export async function getCourriersArrives(req, res) {
     const courriers = await db.all(sql, params);
     res.json(courriers);
   } catch (err) {
-    console.error('Erreur getCourriersArrives MySQL:', err);
+    console.error('Erreur getCourriersArrives PostgreSQL:', err);
     res.status(500).json({ error: 'Erreur lors de la recherche des courriers arrivés.' });
   }
 }
@@ -106,6 +110,7 @@ export async function getMyCourriersChef(req, res) {
                LEFT JOIN users u ON c.created_by = u.id 
                WHERE c.service_destinataire = 'Chef de Division'`;
     const params = [];
+    let pIdx = 1;
 
     if (period && period !== 'total') {
       const dateCond = buildDateCondition('c.date_arrivee', period);
@@ -114,7 +119,7 @@ export async function getMyCourriersChef(req, res) {
 
     if (priorite && ['Normal', 'Urgent', 'Très Urgent'].includes(priorite.trim())) {
       params.push(priorite.trim());
-      sql += ` AND c.priorite = ?`;
+      sql += ` AND c.priorite = $${pIdx++}`;
     }
 
     if (status) {
@@ -126,25 +131,28 @@ export async function getMyCourriersChef(req, res) {
       else if (upper.includes('TRANSMIS')) matchVals = ['Transmis', 'TRANSMIS'];
       else if (upper.includes('NOUVEAU')) matchVals = ['Nouveau', 'NOUVEAU'];
 
-      const placeholders = matchVals.map(() => '?').join(', ');
+      const placeholders = matchVals.map(() => `$${pIdx++}`).join(', ');
       params.push(...matchVals);
       sql += ` AND c.statut IN (${placeholders})`;
     }
 
     if (search) {
       const searchPattern = `%${search}%`;
+      const p1 = pIdx++;
+      const p2 = pIdx++;
+      const p3 = pIdx++;
       params.push(searchPattern, searchPattern, searchPattern);
-      sql += ` AND (c.reference LIKE ? OR c.objet LIKE ? OR c.expediteur LIKE ?)`;
+      sql += ` AND (c.reference ILIKE $${p1} OR c.objet ILIKE $${p2} OR c.expediteur ILIKE $${p3})`;
     }
 
     if (date_from) {
       params.push(date_from);
-      sql += ` AND c.date_arrivee >= ?`;
+      sql += ` AND c.date_arrivee >= $${pIdx++}`;
     }
 
     if (date_to) {
       params.push(date_to);
-      sql += ` AND c.date_arrivee <= ?`;
+      sql += ` AND c.date_arrivee <= $${pIdx++}`;
     }
 
     sql += ` ORDER BY c.created_at DESC`;
@@ -152,14 +160,13 @@ export async function getMyCourriersChef(req, res) {
     const courriers = await db.all(sql, params);
     res.json(courriers);
   } catch (err) {
-    console.error('Erreur getMyCourriersChef MySQL:', err);
+    console.error('Erreur getMyCourriersChef PostgreSQL:', err);
     res.status(500).json({ error: 'Erreur lors de la récupération des courriers du Chef de Division.' });
   }
 }
 
 export async function createCourrierArrive(req, res) {
   try {
-    // Permitted for Chef de Division and Responsable Bureau d'Ordre
     const role = String(req.user.role || '').trim().toUpperCase();
     if (role !== 'CHEF_DIVISION' && role !== 'SECRETAIRE' && role !== 'RESPONSABLE_BO' && role !== 'AGENT_BO') {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -202,16 +209,17 @@ export async function createCourrierArrive(req, res) {
     const safePriorite = priorite && validPriorities.includes(priorite.trim()) ? priorite.trim() : 'Normal';
 
     // Check duplicate reference (Reference MUST BE MANUAL and UNIQUE)
-    const existing = await db.get('SELECT id FROM courriers_arrives WHERE reference = ?', [reference.trim()]);
+    const existing = await db.get('SELECT id FROM courriers_arrives WHERE reference = $1', [reference.trim()]);
     if (existing) {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: `La référence "${reference.trim()}" existe déjà dans le registre des courriers arrivés.` });
     }
 
-    await db.query(
+    const insertRes = await db.query(
       `INSERT INTO courriers_arrives 
        (reference, objet, expediteur, date_arrivee, observation, service_destinataire, statut, priorite, pdf_filename, pdf_original_name, pdf_size, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 'NOUVEAU', ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, 'NOUVEAU', $7, $8, $9, $10, $11)
+       RETURNING *`,
       [
         reference.trim(),
         objet.trim(),
@@ -227,7 +235,7 @@ export async function createCourrierArrive(req, res) {
       ]
     );
 
-    const newCourrier = await db.get('SELECT * FROM courriers_arrives WHERE reference = ?', [reference.trim()]);
+    const newCourrier = insertRes.rows[0];
 
     await createAuditLog({
       req,
@@ -257,7 +265,6 @@ export async function createCourrierArrive(req, res) {
 
 export async function updateCourrierArrive(req, res) {
   try {
-    // Chef de Division or Secrétaire can update courriers metadata
     const role = String(req.user.role || '').trim().toUpperCase();
     if (role !== 'CHEF_DIVISION' && role !== 'SECRETAIRE' && role !== 'RESPONSABLE_BO' && role !== 'AGENT_BO') {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -265,7 +272,7 @@ export async function updateCourrierArrive(req, res) {
     }
 
     const { id } = req.params;
-    const oldCourrier = await db.get('SELECT * FROM courriers_arrives WHERE id = ?', [id]);
+    const oldCourrier = await db.get('SELECT * FROM courriers_arrives WHERE id = $1', [id]);
     if (!oldCourrier) {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(404).json({ error: 'Courrier arrivé introuvable.' });
@@ -275,7 +282,7 @@ export async function updateCourrierArrive(req, res) {
 
     // Check if new reference collides
     if (reference && reference.trim() !== oldCourrier.reference) {
-      const collision = await db.get('SELECT id FROM courriers_arrives WHERE reference = ? AND id != ?', [reference.trim(), id]);
+      const collision = await db.get('SELECT id FROM courriers_arrives WHERE reference = $1 AND id != $2', [reference.trim(), id]);
       if (collision) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         return res.status(400).json({ error: `La référence "${reference.trim()}" est déjà attribuée.` });
@@ -301,15 +308,17 @@ export async function updateCourrierArrive(req, res) {
     const validPriorities = ['Normal', 'Urgent', 'Très Urgent'];
     const newPriorite = priorite && validPriorities.includes(priorite.trim()) ? priorite.trim() : (oldCourrier.priorite || 'Normal');
 
-    await db.query(
+    const updateRes = await db.query(
       `UPDATE courriers_arrives 
-       SET reference = ?, objet = ?, expediteur = ?, date_arrivee = ?, observation = ?,
-           service_destinataire = ?, priorite = ?, pdf_filename = ?, pdf_original_name = ?, pdf_size = ?
-       WHERE id = ?`,
+       SET reference = $1, objet = $2, expediteur = $3, date_arrivee = $4, observation = $5,
+           service_destinataire = $6, priorite = $7, pdf_filename = $8, pdf_original_name = $9, pdf_size = $10,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $11
+       RETURNING *`,
       [newRef, newObjet, newExp, newDate, newObs, newService, newPriorite, pdf_filename, pdf_original_name, pdf_size, id]
     );
 
-    const updatedCourrier = await db.get('SELECT * FROM courriers_arrives WHERE id = ?', [id]);
+    const updatedCourrier = updateRes.rows[0];
 
     const isRedirected = oldCourrier.service_destinataire !== newService;
     const actionName = isRedirected ? 'REDIRECTION_COURRIER_ARRIVE' : 'MODIFICATION_COURRIER_ARRIVE';
@@ -355,7 +364,7 @@ export async function updateCourrierArriveStatus(req, res) {
       });
     }
 
-    const courrier = await db.get('SELECT * FROM courriers_arrives WHERE id = ?', [id]);
+    const courrier = await db.get('SELECT * FROM courriers_arrives WHERE id = $1', [id]);
     if (!courrier) {
       return res.status(404).json({ error: 'Courrier arrivé introuvable.' });
     }
@@ -390,28 +399,28 @@ export async function updateCourrierArriveStatus(req, res) {
         });
       }
 
-      // Check date and fields to update
       let datePriseEnChargeSql = '';
       let dateTraitementSql = '';
       const params = [targetStatut];
+      let pIdx = 2;
 
       if (targetStatut === 'En cours') {
-        datePriseEnChargeSql = ', date_prise_en_charge = COALESCE(date_prise_en_charge, NOW())';
+        datePriseEnChargeSql = ', date_prise_en_charge = COALESCE(date_prise_en_charge, CURRENT_TIMESTAMP)';
       } else if (targetStatut === 'Traité') {
-        dateTraitementSql = ', date_traitement = NOW(), traite_par = ?';
+        dateTraitementSql = `, date_traitement = CURRENT_TIMESTAMP, traite_par = $${pIdx++}`;
         params.push(req.user.name || req.user.login);
       }
 
+      const idPlaceholder = `$${pIdx++}`;
       params.push(id);
 
       await db.query(
         `UPDATE courriers_arrives 
-         SET statut = ? ${datePriseEnChargeSql} ${dateTraitementSql} 
-         WHERE id = ?`,
+         SET statut = $1 ${datePriseEnChargeSql} ${dateTraitementSql}, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ${idPlaceholder}`,
         params
       );
 
-      // Audit log
       const actionName = targetStatut === 'Traité' 
         ? `Traitement finalisé du courrier ${courrier.reference} par ${req.user.name}`
         : `Prise en charge du courrier ${courrier.reference} par ${req.user.name}`;
@@ -423,7 +432,6 @@ export async function updateCourrierArriveStatus(req, res) {
         newValue: { reference: courrier.reference, statut: targetStatut }
       });
 
-      // Notify Chef de Division
       await notifyChefDivision({
         title: `Courrier ${targetStatut.toLowerCase()} : ${courrier.reference}`,
         message: `Le courrier Réf: ${courrier.reference} ("${courrier.objet.substring(0, 40)}...") a été marqué comme "${targetStatut}" par le ${req.user.service} (${req.user.name}).`,
@@ -431,13 +439,13 @@ export async function updateCourrierArriveStatus(req, res) {
       });
 
       const updatedCourrier = await db.get(
-        'SELECT c.*, u.name as creator_name FROM courriers_arrives c LEFT JOIN users u ON c.created_by = u.id WHERE c.id = ?',
+        'SELECT c.*, u.name as creator_name FROM courriers_arrives c LEFT JOIN users u ON c.created_by = u.id WHERE c.id = $1',
         [id]
       );
       return res.json(updatedCourrier);
     }
 
-    // Chef de Division actions (Transmission or custom status change)
+    // Chef de Division actions
     if (isChefDivision) {
       const targetService = service_destinataire ? service_destinataire.trim() : courrier.service_destinataire;
       const validPriorities = ['Normal', 'Urgent', 'Très Urgent'];
@@ -448,20 +456,22 @@ export async function updateCourrierArriveStatus(req, res) {
       let datePriseSql = '';
       let dateTraitSql = '';
       const updateParams = [targetStatut, targetService, targetPriorite];
+      let pIdx = 4;
 
       if (targetStatut === 'En cours') {
-        datePriseSql = ', date_prise_en_charge = COALESCE(date_prise_en_charge, NOW())';
+        datePriseSql = ', date_prise_en_charge = COALESCE(date_prise_en_charge, CURRENT_TIMESTAMP)';
       } else if (targetStatut === 'Traité') {
-        dateTraitSql = ', date_traitement = NOW(), traite_par = ?';
+        dateTraitSql = `, date_traitement = CURRENT_TIMESTAMP, traite_par = $${pIdx++}`;
         updateParams.push(req.user.name || 'Chef de Division');
       }
 
+      const idPlaceholder = `$${pIdx++}`;
       updateParams.push(id);
 
       await db.query(
         `UPDATE courriers_arrives 
-         SET statut = ?, service_destinataire = ?, priorite = ? ${datePriseSql} ${dateTraitSql} 
-         WHERE id = ?`,
+         SET statut = $1, service_destinataire = $2, priorite = $3 ${datePriseSql} ${dateTraitSql}, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ${idPlaceholder}`,
         updateParams
       );
 
@@ -472,7 +482,6 @@ export async function updateCourrierArriveStatus(req, res) {
         newValue: { reference: courrier.reference, statut: targetStatut, service: targetService, priorite: targetPriorite }
       });
 
-      // If transmitting to a service, notify them
       if (targetStatut === 'Transmis') {
         const isHighPriority = targetPriorite === 'Très Urgent' || targetPriorite === 'Urgent';
         const notifType = targetPriorite === 'Très Urgent' ? 'danger' : (targetPriorite === 'Urgent' ? 'warning' : 'info');
@@ -485,7 +494,7 @@ export async function updateCourrierArriveStatus(req, res) {
       }
 
       const updatedCourrier = await db.get(
-        'SELECT c.*, u.name as creator_name FROM courriers_arrives c LEFT JOIN users u ON c.created_by = u.id WHERE c.id = ?',
+        'SELECT c.*, u.name as creator_name FROM courriers_arrives c LEFT JOIN users u ON c.created_by = u.id WHERE c.id = $1',
         [id]
       );
       return res.json(updatedCourrier);
@@ -509,6 +518,7 @@ export async function getCourriersDeparts(req, res) {
                LEFT JOIN users u ON c.created_by = u.id 
                WHERE 1=1`;
     const params = [];
+    let pIdx = 1;
 
     if (period && period !== 'total') {
       const dateCond = buildDateCondition('c.date_depart', period);
@@ -517,27 +527,34 @@ export async function getCourriersDeparts(req, res) {
 
     // Service isolation for USER_SERVICE
     if (req.user.role === 'USER_SERVICE') {
+      const p1 = pIdx++;
+      const p2 = pIdx++;
       params.push(req.user.service, req.user.service);
-      sql += ` AND (s.nom = ? OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = ? LIMIT 1))`;
+      sql += ` AND (s.nom = $${p1} OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = $${p2} LIMIT 1))`;
     } else if (service) {
+      const p1 = pIdx++;
+      const p2 = pIdx++;
       params.push(service, service);
-      sql += ` AND (s.nom = ? OR c.service_expediteur_id = ?)`;
+      sql += ` AND (s.nom = $${p1} OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = $${p2} LIMIT 1))`;
     }
 
     if (search) {
       const searchPattern = `%${search}%`;
+      const p1 = pIdx++;
+      const p2 = pIdx++;
+      const p3 = pIdx++;
       params.push(searchPattern, searchPattern, searchPattern);
-      sql += ` AND (c.reference LIKE ? OR c.objet LIKE ? OR c.destinataire LIKE ?)`;
+      sql += ` AND (c.reference ILIKE $${p1} OR c.objet ILIKE $${p2} OR c.destinataire ILIKE $${p3})`;
     }
 
     if (date_from) {
       params.push(date_from);
-      sql += ` AND c.date_depart >= ?`;
+      sql += ` AND c.date_depart >= $${pIdx++}`;
     }
 
     if (date_to) {
       params.push(date_to);
-      sql += ` AND c.date_depart <= ?`;
+      sql += ` AND c.date_depart <= $${pIdx++}`;
     }
 
     sql += ` ORDER BY c.created_at DESC`;
@@ -545,14 +562,13 @@ export async function getCourriersDeparts(req, res) {
     const courriers = await db.all(sql, params);
     res.json(courriers);
   } catch (err) {
-    console.error('❌ Erreur getCourriersDeparts MySQL:', err);
+    console.error('❌ Erreur getCourriersDeparts PostgreSQL:', err);
     res.status(500).json({ error: 'Erreur lors de la recherche des courriers départ.' });
   }
 }
 
 export async function createCourrierDepart(req, res) {
   try {
-    // Permitted for Chef de Division or Responsable Bureau d'Ordre
     const role = String(req.user.role || '').trim().toUpperCase();
     if (role !== 'CHEF_DIVISION' && role !== 'SECRETAIRE' && role !== 'RESPONSABLE_BO' && role !== 'AGENT_BO') {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
@@ -586,10 +602,9 @@ export async function createCourrierDepart(req, res) {
       return res.status(400).json({ error: 'Le destinataire du courrier départ est obligatoire.' });
     }
 
-    // Resolve service_expediteur_id
     let targetServiceId = service_expediteur_id ? parseInt(service_expediteur_id, 10) : null;
     if (!targetServiceId && service_expediteur) {
-      const sRow = await db.get('SELECT id FROM services WHERE nom = ?', [service_expediteur.trim()]);
+      const sRow = await db.get('SELECT id FROM services WHERE nom = $1', [service_expediteur.trim()]);
       if (sRow) targetServiceId = sRow.id;
     }
 
@@ -598,16 +613,17 @@ export async function createCourrierDepart(req, res) {
       return res.status(400).json({ error: 'Le Service Expéditeur est obligatoire.' });
     }
 
-    const existing = await db.get('SELECT id FROM courriers_departs WHERE reference = ?', [reference.trim()]);
+    const existing = await db.get('SELECT id FROM courriers_departs WHERE reference = $1', [reference.trim()]);
     if (existing) {
       fs.unlinkSync(req.file.path);
       return res.status(400).json({ error: `La référence "${reference.trim()}" existe déjà dans le registre des courriers départ.` });
     }
 
-    await db.query(
+    const insertRes = await db.query(
       `INSERT INTO courriers_departs 
        (reference, objet, destinataire, service_expediteur_id, date_depart, observation, pdf_filename, pdf_original_name, pdf_size, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
       [
         reference.trim(),
         objet.trim(),
@@ -626,7 +642,7 @@ export async function createCourrierDepart(req, res) {
       `SELECT c.*, s.nom as service_expediteur 
        FROM courriers_departs c 
        LEFT JOIN services s ON c.service_expediteur_id = s.id 
-       WHERE c.reference = ?`,
+       WHERE c.reference = $1`,
       [reference.trim()]
     );
 
@@ -655,7 +671,7 @@ export async function updateCourrierDepart(req, res) {
     }
 
     const { id } = req.params;
-    const oldCourrier = await db.get('SELECT * FROM courriers_departs WHERE id = ?', [id]);
+    const oldCourrier = await db.get('SELECT * FROM courriers_departs WHERE id = $1', [id]);
     if (!oldCourrier) {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       return res.status(404).json({ error: 'Courrier départ introuvable.' });
@@ -664,7 +680,7 @@ export async function updateCourrierDepart(req, res) {
     const { reference, objet, destinataire, date_depart, observation, service_expediteur_id, service_expediteur } = req.body;
 
     if (reference && reference.trim() !== oldCourrier.reference) {
-      const collision = await db.get('SELECT id FROM courriers_departs WHERE reference = ? AND id != ?', [reference.trim(), id]);
+      const collision = await db.get('SELECT id FROM courriers_departs WHERE reference = $1 AND id != $2', [reference.trim(), id]);
       if (collision) {
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         return res.status(400).json({ error: `La référence "${reference.trim()}" est déjà attribuée.` });
@@ -675,7 +691,7 @@ export async function updateCourrierDepart(req, res) {
     if (service_expediteur_id) {
       targetServiceId = parseInt(service_expediteur_id, 10);
     } else if (service_expediteur) {
-      const sRow = await db.get('SELECT id FROM services WHERE nom = ?', [service_expediteur.trim()]);
+      const sRow = await db.get('SELECT id FROM services WHERE nom = $1', [service_expediteur.trim()]);
       if (sRow) targetServiceId = sRow.id;
     }
 
@@ -697,9 +713,9 @@ export async function updateCourrierDepart(req, res) {
 
     await db.query(
       `UPDATE courriers_departs 
-       SET reference = ?, objet = ?, destinataire = ?, service_expediteur_id = ?, date_depart = ?, observation = ?,
-           pdf_filename = ?, pdf_original_name = ?, pdf_size = ?
-       WHERE id = ?`,
+       SET reference = $1, objet = $2, destinataire = $3, service_expediteur_id = $4, date_depart = $5, observation = $6,
+           pdf_filename = $7, pdf_original_name = $8, pdf_size = $9, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $10`,
       [newRef, newObjet, newDest, targetServiceId, newDate, newObs, pdf_filename, pdf_original_name, pdf_size, id]
     );
 
@@ -707,7 +723,7 @@ export async function updateCourrierDepart(req, res) {
       `SELECT c.*, s.nom as service_expediteur 
        FROM courriers_departs c 
        LEFT JOIN services s ON c.service_expediteur_id = s.id 
-       WHERE c.id = ?`,
+       WHERE c.id = $1`,
       [id]
     );
 
@@ -771,17 +787,17 @@ export async function downloadPdf(req, res) {
     const isDepart = (type === 'depart' || type === 'departs');
 
     if (isArrive) {
-      courrier = await db.get('SELECT *, \'arrive\' as category FROM courriers_arrives WHERE pdf_filename = ?', [safeFilename]);
+      courrier = await db.get('SELECT *, \'arrive\' as category FROM courriers_arrives WHERE pdf_filename = $1', [safeFilename]);
     } else if (isDepart) {
-      courrier = await db.get('SELECT c.*, s.nom as service_expediteur, \'depart\' as category FROM courriers_departs c LEFT JOIN services s ON c.service_expediteur_id = s.id WHERE c.pdf_filename = ?', [safeFilename]);
+      courrier = await db.get('SELECT c.*, s.nom as service_expediteur, \'depart\' as category FROM courriers_departs c LEFT JOIN services s ON c.service_expediteur_id = s.id WHERE c.pdf_filename = $1', [safeFilename]);
     }
 
     if (!courrier) {
-      courrier = await db.get('SELECT *, \'arrive\' as category FROM courriers_arrives WHERE pdf_filename = ?', [safeFilename]);
+      courrier = await db.get('SELECT *, \'arrive\' as category FROM courriers_arrives WHERE pdf_filename = $1', [safeFilename]);
       if (courrier) detectedType = 'arrive';
     }
     if (!courrier) {
-      courrier = await db.get('SELECT c.*, s.nom as service_expediteur, \'depart\' as category FROM courriers_departs c LEFT JOIN services s ON c.service_expediteur_id = s.id WHERE c.pdf_filename = ?', [safeFilename]);
+      courrier = await db.get('SELECT c.*, s.nom as service_expediteur, \'depart\' as category FROM courriers_departs c LEFT JOIN services s ON c.service_expediteur_id = s.id WHERE c.pdf_filename = $1', [safeFilename]);
       if (courrier) detectedType = 'depart';
     }
 
@@ -846,12 +862,13 @@ export async function getSearchSuggestions(req, res) {
     if (!q || q.length < 2) return res.json([]);
 
     const param = `%${q}%`;
-    let sqlArrives = `SELECT c.*, 'arrive' as category FROM courriers_arrives c WHERE c.reference LIKE ? OR c.objet LIKE ? OR c.expediteur LIKE ?`;
+    let sqlArrives = `SELECT c.*, 'arrive' as category FROM courriers_arrives c WHERE c.reference ILIKE $1 OR c.objet ILIKE $2 OR c.expediteur ILIKE $3`;
     const paramsArrives = [param, param, param];
+    let pIdxArrives = 4;
 
     if (req.user.role === 'USER_SERVICE') {
       paramsArrives.push(req.user.service);
-      sqlArrives += ` AND c.service_destinataire = ? AND UPPER(c.statut) != 'NOUVEAU'`;
+      sqlArrives += ` AND c.service_destinataire = $${pIdxArrives++} AND UPPER(c.statut) != 'NOUVEAU'`;
     }
 
     sqlArrives += ` ORDER BY c.created_at DESC LIMIT 5`;
@@ -860,12 +877,15 @@ export async function getSearchSuggestions(req, res) {
     let sqlDeparts = `SELECT c.*, s.nom as service_expediteur, 'depart' as category 
                       FROM courriers_departs c 
                       LEFT JOIN services s ON c.service_expediteur_id = s.id 
-                      WHERE (c.reference LIKE ? OR c.objet LIKE ? OR c.destinataire LIKE ?)`;
+                      WHERE (c.reference ILIKE $1 OR c.objet ILIKE $2 OR c.destinataire ILIKE $3)`;
     const paramsDeparts = [param, param, param];
+    let pIdxDeparts = 4;
 
     if (req.user.role === 'USER_SERVICE') {
+      const p1 = pIdxDeparts++;
+      const p2 = pIdxDeparts++;
       paramsDeparts.push(req.user.service, req.user.service);
-      sqlDeparts += ` AND (s.nom = ? OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = ? LIMIT 1))`;
+      sqlDeparts += ` AND (s.nom = $${p1} OR c.service_expediteur_id = (SELECT id FROM services WHERE nom = $${p2} LIMIT 1))`;
     }
 
     sqlDeparts += ` ORDER BY c.created_at DESC LIMIT 5`;

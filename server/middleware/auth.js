@@ -18,7 +18,7 @@ export async function authenticateToken(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     
     // Fetch active user status from database
-    const user = await db.get('SELECT id, login, name, role, service, active FROM users WHERE id = ?', [decoded.id]);
+    const user = await db.get('SELECT id, login, name, role, service, active FROM users WHERE id = $1', [decoded.id]);
 
     if (!user || !user.active) {
       return res.status(403).json({ error: 'Compte utilisateur inactif ou supprimé.' });

@@ -34,7 +34,8 @@ export async function createNotification({
 
     const sql = `
       INSERT INTO notifications (user_id, service, role, title, message, type)
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
     `;
 
     const result = await db.query(sql, [
@@ -56,7 +57,7 @@ export async function createNotification({
       type: cleanType
     };
   } catch (err) {
-    console.error('❌ Erreur lors de la création de la notification:', err.message);
+    console.error('❌ Erreur lors de la création de la notification PostgreSQL:', err.message);
     throw err;
   }
 }
@@ -113,13 +114,6 @@ export async function notifyUser({ userId, title, message, type = 'info' }) {
 
 /**
  * Retrieves notifications scoped strictly to the requesting user's role and assigned service.
- * 
- * Rules:
- * - USER_SERVICE: Only receives notifications for their own service, or directly assigned to their userId.
- *                 NEVER receives system/backup notifications (where service is NULL or role is CHEF_DIVISION).
- * - RESPONSABLE_BO / SECRETAIRE: Receives Bureau d'Ordre alerts, direct user assignments.
- *                                DOES NOT receive system backup maintenance notifications.
- * - CHEF_DIVISION: Receives division-wide alerts, system/backup notifications, and status tracking events.
  */
 export async function getScopedNotifications(user, options = {}) {
   const role = String(user?.role || '').trim().toUpperCase();
@@ -128,23 +122,21 @@ export async function getScopedNotifications(user, options = {}) {
 
   let sql = 'SELECT * FROM notifications WHERE ';
   const params = [];
+  let pIdx = 1;
 
   if (role === 'USER_SERVICE') {
-    // Strictly isolate service users: MUST match their service or their specific user_id.
-    // Excludes any system/backup notifications where service is NULL.
     sql += `
       (
-        (user_id = ?)
+        (user_id = $${pIdx++})
         OR
-        (service = ? AND (role IS NULL OR role = 'USER_SERVICE'))
+        (service = $${pIdx++} AND (role IS NULL OR role = 'USER_SERVICE'))
       )
     `;
     params.push(userId, service);
   } else if (role === 'RESPONSABLE_BO' || role === 'SECRETAIRE' || role === 'AGENT_BO') {
-    // Bureau d'Ordre isolation: direct user assignment or BO-targeted notifications
     sql += `
       (
-        (user_id = ?)
+        (user_id = $${pIdx++})
         OR
         (role IN ('RESPONSABLE_BO', 'SECRETAIRE', 'AGENT_BO'))
         OR
@@ -153,14 +145,12 @@ export async function getScopedNotifications(user, options = {}) {
     `;
     params.push(userId);
   } else if (role === 'CHEF_DIVISION') {
-    // Chef de Division sees administrative/system notifications (backups, user management),
-    // general division announcements (service IS NULL), and direct user alerts.
     if (options.all === true) {
       sql += '1=1';
     } else {
       sql += `
         (
-          (user_id = ?)
+          (user_id = $${pIdx++})
           OR
           (role = 'CHEF_DIVISION')
           OR
@@ -170,8 +160,7 @@ export async function getScopedNotifications(user, options = {}) {
       params.push(userId);
     }
   } else {
-    // Default fallback: direct user assignments only
-    sql += `(user_id = ?)`;
+    sql += `(user_id = $${pIdx++})`;
     params.push(userId);
   }
 
@@ -184,7 +173,7 @@ export async function getScopedNotifications(user, options = {}) {
  * Marks a single notification as read if it is accessible to the user.
  */
 export async function markNotificationAsRead(id, user) {
-  return db.query(`UPDATE notifications SET is_read = true WHERE id = ?`, [id]);
+  return db.query(`UPDATE notifications SET is_read = TRUE WHERE id = $1`, [id]);
 }
 
 /**
@@ -195,20 +184,21 @@ export async function markAllNotificationsAsRead(user) {
   const service = user?.service ? String(user.service).trim() : null;
   const userId = user?.id;
 
-  let sql = 'UPDATE notifications SET is_read = true WHERE is_read = false AND ';
+  let sql = 'UPDATE notifications SET is_read = TRUE WHERE is_read = FALSE AND ';
   const params = [];
+  let pIdx = 1;
 
   if (role === 'USER_SERVICE') {
-    sql += `((user_id = ?) OR (service = ? AND (role IS NULL OR role = 'USER_SERVICE')))`;
+    sql += `((user_id = $${pIdx++}) OR (service = $${pIdx++} AND (role IS NULL OR role = 'USER_SERVICE')))`;
     params.push(userId, service);
   } else if (role === 'RESPONSABLE_BO' || role === 'SECRETAIRE' || role === 'AGENT_BO') {
-    sql += `((user_id = ?) OR (role IN ('RESPONSABLE_BO', 'SECRETAIRE', 'AGENT_BO')) OR (service IN ('Bureau d''Ordre', 'BO')))`;
+    sql += `((user_id = $${pIdx++}) OR (role IN ('RESPONSABLE_BO', 'SECRETAIRE', 'AGENT_BO')) OR (service IN ('Bureau d''Ordre', 'BO')))`;
     params.push(userId);
   } else if (role === 'CHEF_DIVISION') {
-    sql += `((user_id = ?) OR (role = 'CHEF_DIVISION') OR (service IS NULL))`;
+    sql += `((user_id = $${pIdx++}) OR (role = 'CHEF_DIVISION') OR (service IS NULL))`;
     params.push(userId);
   } else {
-    sql += `(user_id = ?)`;
+    sql += `(user_id = $${pIdx++})`;
     params.push(userId);
   }
 

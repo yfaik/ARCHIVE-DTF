@@ -25,7 +25,7 @@ export async function createUser(req, res) {
     }
 
     // Check if login exists (login MUST be unique)
-    const existing = await db.get('SELECT id FROM users WHERE login = ?', [cleanLogin]);
+    const existing = await db.get('SELECT id FROM users WHERE login = $1', [cleanLogin]);
     if (existing) {
       return res.status(400).json({ error: 'Un utilisateur avec ce login existe déjà.' });
     }
@@ -37,13 +37,14 @@ export async function createUser(req, res) {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await db.execute(
+    const insertRes = await db.query(
       `INSERT INTO users (login, password_hash, name, role, service, active)
-       VALUES (?, ?, ?, ?, ?, true)`,
+       VALUES ($1, $2, $3, $4, $5, TRUE)
+       RETURNING id, login, name, role, service, active, created_at`,
       [cleanLogin, passwordHash, String(name || '').trim(), role, role === 'USER_SERVICE' ? service : null]
     );
 
-    const newUser = await db.get('SELECT id, login, name, role, service, active, created_at FROM users WHERE login = ?', [cleanLogin]);
+    const newUser = insertRes.rows[0];
 
     await createAuditLog({
       req,
@@ -72,7 +73,7 @@ export async function updateUser(req, res) {
     const { id } = req.params;
     const { name, role, service, active } = req.body;
 
-    const oldUser = await db.get('SELECT id, login, name, role, service, active FROM users WHERE id = ?', [id]);
+    const oldUser = await db.get('SELECT id, login, name, role, service, active FROM users WHERE id = $1', [id]);
     if (!oldUser) {
       return res.status(404).json({ error: 'Utilisateur introuvable.' });
     }
@@ -82,14 +83,15 @@ export async function updateUser(req, res) {
     const newService = newRole === 'USER_SERVICE' ? (service !== undefined ? service : oldUser.service) : null;
     const newActive = active !== undefined ? Boolean(active) : oldUser.active;
 
-    await db.query(
+    const updateRes = await db.query(
       `UPDATE users 
-       SET name = ?, role = ?, service = ?, active = ?, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ?`,
+       SET name = $1, role = $2, service = $3, active = $4, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $5
+       RETURNING id, login, name, role, service, active, updated_at`,
       [newName, newRole, newService, newActive, id]
     );
 
-    const updatedUser = await db.get('SELECT id, login, name, role, service, active, updated_at FROM users WHERE id = ?', [id]);
+    const updatedUser = updateRes.rows[0];
 
     await createAuditLog({
       req,
@@ -109,7 +111,7 @@ export async function toggleUserStatus(req, res) {
     const { id } = req.params;
     const { active } = req.body;
 
-    const oldUser = await db.get('SELECT id, login, active FROM users WHERE id = ?', [id]);
+    const oldUser = await db.get('SELECT id, login, active FROM users WHERE id = $1', [id]);
     if (!oldUser) {
       return res.status(404).json({ error: 'Utilisateur introuvable.' });
     }
@@ -117,7 +119,7 @@ export async function toggleUserStatus(req, res) {
     const newActive = Boolean(active);
 
     await db.query(
-      `UPDATE users SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE users SET active = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
       [newActive, id]
     );
 
@@ -141,7 +143,7 @@ export async function resetPassword(req, res) {
     const { id } = req.params;
     const { newPassword } = req.body;
 
-    const targetUser = await db.get('SELECT id, login FROM users WHERE id = ?', [id]);
+    const targetUser = await db.get('SELECT id, login FROM users WHERE id = $1', [id]);
     if (!targetUser) {
       return res.status(404).json({ error: 'Utilisateur introuvable.' });
     }
@@ -149,7 +151,7 @@ export async function resetPassword(req, res) {
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
     await db.query(
-      `UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
       [passwordHash, id]
     );
 
@@ -170,7 +172,7 @@ export async function deleteUser(req, res) {
   try {
     const { id } = req.params;
 
-    const targetUser = await db.get('SELECT id, login, name, role, service, active FROM users WHERE id = ?', [id]);
+    const targetUser = await db.get('SELECT id, login, name, role, service, active FROM users WHERE id = $1', [id]);
     if (!targetUser) {
       return res.status(404).json({ error: 'Utilisateur introuvable.' });
     }
@@ -187,14 +189,17 @@ export async function deleteUser(req, res) {
 
     // Check if deleting a CHEF_DIVISION leaves at least 1 active CHEF_DIVISION
     if (targetUser.role === 'CHEF_DIVISION') {
-      const chefCountRes = await db.get('SELECT COUNT(*) as count FROM users WHERE role = "CHEF_DIVISION" AND active = true AND id != ?', [id]);
+      const chefCountRes = await db.get(
+        "SELECT COUNT(*) as count FROM users WHERE role = 'CHEF_DIVISION' AND active = true AND id != $1",
+        [id]
+      );
       const chefCount = parseInt(chefCountRes?.count || 0, 10);
       if (chefCount < 1) {
         return res.status(400).json({ error: 'Impossible de supprimer le seul compte Chef de Division actif.' });
       }
     }
 
-    await db.query('DELETE FROM users WHERE id = ?', [id]);
+    await db.query('DELETE FROM users WHERE id = $1', [id]);
 
     await createAuditLog({
       req,

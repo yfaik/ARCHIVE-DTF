@@ -22,10 +22,10 @@ export async function createAuditLog({ req, action, oldValue = null, newValue = 
     
     await db.query(
       `INSERT INTO audit_logs (user_id, user_name, role, ip_address, user_agent, action, old_value, new_value)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [userId, userName, role, ipAddress, userAgent, action, oldValStr, newValStr]
     );
   } catch (err) {
-    console.error('❌ Erreur enregistrement Audit Log MySQL:', err);
+    console.error('❌ Erreur enregistrement Audit Log PostgreSQL:', err);
   }
 }

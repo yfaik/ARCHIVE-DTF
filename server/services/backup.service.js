@@ -26,7 +26,7 @@ if (!fs.existsSync(uploadDir)) {
 let isBackupRunning = false;
 
 /**
- * Escapes values for safe standard MySQL SQL dumps.
+ * Escapes values for safe standard PostgreSQL SQL dumps.
  */
 function escapeSqlValue(val) {
   if (val === null || val === undefined) return 'NULL';
@@ -57,7 +57,7 @@ function escapeSqlValue(val) {
 }
 
 /**
- * Generates a structured, lightweight SQL dump for MySQL.
+ * Generates a structured, lightweight SQL dump for PostgreSQL.
  * Includes schema (DDL) and clean batched INSERT statements.
  */
 export async function generateDatabaseDump(targetDateStr = new Date().toISOString().split('T')[0]) {
@@ -65,27 +65,25 @@ export async function generateDatabaseDump(targetDateStr = new Date().toISOStrin
 
   // 1. SQL Header & Environment Configuration
   dumpSql += `-- =============================================================================\n`;
-  dumpSql += `-- DTF Commune de Benslimane - Sauvegarde Quotidienne MySQL\n`;
+  dumpSql += `-- DTF Commune de Benslimane - Sauvegarde Quotidienne PostgreSQL\n`;
   dumpSql += `-- Date de génération : ${new Date().toISOString()}\n`;
   dumpSql += `-- Date ciblée       : ${targetDateStr}\n`;
   dumpSql += `-- Base de données   : ${process.env.DB_NAME || 'dtf_benslimane'}\n`;
+  dumpSql += `-- Moteur BD         : PostgreSQL / Neon Tech\n`;
   dumpSql += `-- =============================================================================\n\n`;
-  dumpSql += `SET NAMES utf8mb4;\n`;
-  dumpSql += `SET FOREIGN_KEY_CHECKS = 0;\n`;
-  dumpSql += `SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";\n\n`;
 
   // 2. Fetch list of tables dynamically
   let tables = [];
   try {
-    const rawTables = await db.all("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'");
-    tables = rawTables.map(r => Object.values(r)[0]);
+    const rawTables = await db.all("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'");
+    tables = rawTables.map(r => r.table_name || Object.values(r)[0]);
   } catch (err) {
-    console.warn('⚠️ Échec de SHOW FULL TABLES, utilisation de la liste ordonnée par défaut:', err.message);
-    tables = ['services', 'users', 'courriers_arrives', 'courriers_departs', 'courrier_history', 'audit_logs', 'notifications'];
+    console.warn('⚠️ Échec de la récupération des tables, utilisation de la liste ordonnée par défaut:', err.message);
+    tables = ['services', 'users', 'courriers_arrives', 'courriers_departs', 'audit_logs', 'notifications'];
   }
 
   // Logical table ordering to ensure parent foreign keys exist first
-  const tablePriority = ['services', 'users', 'courriers_arrives', 'courriers_departs', 'courrier_history', 'audit_logs', 'notifications'];
+  const tablePriority = ['services', 'users', 'courriers_arrives', 'courriers_departs', 'audit_logs', 'notifications'];
   tables.sort((a, b) => {
     const idxA = tablePriority.indexOf(a);
     const idxB = tablePriority.indexOf(b);
@@ -98,15 +96,15 @@ export async function generateDatabaseDump(targetDateStr = new Date().toISOStrin
   // 3. Activity Summary Comment for Today
   try {
     const arrivesToday = await db.all(
-      "SELECT COUNT(*) as count FROM courriers_arrives WHERE DATE(created_at) = ? OR DATE(updated_at) = ?",
+      "SELECT COUNT(*) as count FROM courriers_arrives WHERE DATE(created_at) = $1 OR DATE(updated_at) = $2",
       [targetDateStr, targetDateStr]
     );
     const departsToday = await db.all(
-      "SELECT COUNT(*) as count FROM courriers_departs WHERE DATE(created_at) = ? OR DATE(updated_at) = ?",
+      "SELECT COUNT(*) as count FROM courriers_departs WHERE DATE(created_at) = $1 OR DATE(updated_at) = $2",
       [targetDateStr, targetDateStr]
     );
     const auditToday = await db.all(
-      "SELECT COUNT(*) as count FROM audit_logs WHERE DATE(timestamp) = ?",
+      "SELECT COUNT(*) as count FROM audit_logs WHERE DATE(timestamp) = $1",
       [targetDateStr]
     );
 
@@ -124,28 +122,18 @@ export async function generateDatabaseDump(targetDateStr = new Date().toISOStrin
   for (const tableName of tables) {
     try {
       dumpSql += `-- -----------------------------------------------------------------------------\n`;
-      dumpSql += `-- Structure de la table \`${tableName}\`\n`;
+      dumpSql += `-- Contenu de la table "${tableName}"\n`;
       dumpSql += `-- -----------------------------------------------------------------------------\n`;
-      dumpSql += `DROP TABLE IF EXISTS \`${tableName}\`;\n`;
 
-      const createRes = await db.all(`SHOW CREATE TABLE \`${tableName}\``);
-      if (createRes && createRes[0]) {
-        const createSql = createRes[0]['Create Table'] || createRes[0]['Create View'];
-        if (createSql) {
-          dumpSql += `${createSql};\n\n`;
-        }
-      }
-
-      dumpSql += `-- Contenu de la table \`${tableName}\`\n`;
-      const rows = await db.all(`SELECT * FROM \`${tableName}\``);
+      const rows = await db.all(`SELECT * FROM "${tableName}"`);
 
       if (!rows || rows.length === 0) {
-        dumpSql += `-- (Aucune donnée dans la table \`${tableName}\`)\n\n`;
+        dumpSql += `-- (Aucune donnée dans la table "${tableName}")\n\n`;
         continue;
       }
 
       const columns = Object.keys(rows[0]);
-      const columnsSql = columns.map(c => `\`${c}\``).join(', ');
+      const columnsSql = columns.map(c => `"${c}"`).join(', ');
 
       // Batch INSERT statements into chunks of 100 rows
       const BATCH_SIZE = 100;
@@ -156,17 +144,16 @@ export async function generateDatabaseDump(targetDateStr = new Date().toISOStrin
           return `  (${rowVals})`;
         }).join(',\n');
 
-        dumpSql += `INSERT INTO \`${tableName}\` (${columnsSql}) VALUES\n${valuesRows};\n`;
+        dumpSql += `INSERT INTO "${tableName}" (${columnsSql}) VALUES\n${valuesRows}\nON CONFLICT DO NOTHING;\n`;
       }
       dumpSql += `\n`;
     } catch (tblErr) {
-      console.error(`⚠️ Erreur lors de l'export de la table \`${tableName}\`:`, tblErr.message);
-      dumpSql += `-- AVERTISSEMENT : Erreur lors de l'export de \`${tableName}\`: ${tblErr.message}\n\n`;
+      console.error(`⚠️ Erreur lors de l'export de la table "${tableName}":`, tblErr.message);
+      dumpSql += `-- AVERTISSEMENT : Erreur lors de l'export de "${tableName}": ${tblErr.message}\n\n`;
     }
   }
 
-  dumpSql += `SET FOREIGN_KEY_CHECKS = 1;\n`;
-  dumpSql += `-- Fin de l'export MySQL\n`;
+  dumpSql += `-- Fin de l'export PostgreSQL\n`;
 
   return dumpSql;
 }
@@ -231,7 +218,7 @@ export function getDailyUploadFiles(targetDateStr = new Date().toISOString().spl
  */
 export function initBackupScheduler() {
   cron.schedule('0 17 * * *', async () => {
-    console.log('⏰ Exécution planifiée de la sauvegarde quotidienne MySQL (17h00)...');
+    console.log('⏰ Exécution planifiée de la sauvegarde quotidienne PostgreSQL (17h00)...');
     try {
       await createBackup('Daily');
       console.log('✅ Sauvegarde quotidienne automatique terminée avec succès.');
@@ -246,7 +233,7 @@ export function initBackupScheduler() {
       } catch (_) {}
     }
   });
-  console.log('📅 Planificateur de sauvegardes quotidiennes (17h00) MySQL activé.');
+  console.log('📅 Planificateur de sauvegardes quotidiennes (17h00) PostgreSQL activé.');
 }
 
 /**
@@ -498,7 +485,7 @@ export function listBackups() {
 /**
  * Restores a backup ZIP archive:
  * - Restores uploaded PDFs to uploads/pdfs (supporting uploads/today/ and legacy pdfs/).
- * - Restores MySQL database if a .sql dump is present.
+ * - Restores PostgreSQL database if a .sql dump is present.
  */
 export async function restoreBackup(zipPath) {
   if (!fs.existsSync(zipPath)) {
@@ -541,7 +528,7 @@ export async function restoreBackup(zipPath) {
           console.log(`🔄 Exécution du dump SQL de restauration : ${normalizedPath}...`);
           await db.query(sqlContent);
           sqlExecuted = true;
-          console.log(`✨ Schéma et données MySQL restaurés avec succès.`);
+          console.log(`✨ Schéma et données PostgreSQL restaurés avec succès.`);
         }
       } catch (sqlErr) {
         console.error(`⚠️ Erreur lors de l'exécution du dump SQL de restauration :`, sqlErr.message);

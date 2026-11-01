@@ -141,8 +141,8 @@ if (fs.existsSync(distDir)) {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
-    db_engine: 'MySQL',
-    database: process.env.DB_NAME || process.env.DB_DATABASE || 'dtf_benslimane',
+    db_engine: 'PostgreSQL (Neon Tech)',
+    database: process.env.DB_NAME || process.env.PGDATABASE || 'dtf_benslimane',
     entity: 'Division Technique et Financière - Commune de Benslimane',
     timestamp: new Date().toISOString()
   });
@@ -173,9 +173,8 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection capturée:', reason);
 });
 
-// Start background cron scheduler & HTTP server
+// Start background cron scheduler & HTTP server (Standalone mode only)
 async function startServer() {
-  // Automatically ensure MySQL database is seeded and log registered users
   try {
     await seedDatabase();
   } catch (seedErr) {
@@ -221,4 +220,9 @@ async function startServer() {
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 }
 
-startServer();
+// Only launch HTTP listener if not running in Vercel Serverless environment
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
