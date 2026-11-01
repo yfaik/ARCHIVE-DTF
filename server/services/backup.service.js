@@ -21,19 +21,21 @@ const baseUploadDir = process.env.VERCEL
   : path.resolve(__dirname, '../uploads');
 
 // Ensure directories exist safely without throwing errors on read-only environments
-try {
-  if (!fs.existsSync(backupDir)) {
-    fs.mkdirSync(backupDir, { recursive: true });
+if (!process.env.VERCEL) {
+  try {
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("Skipping local directory creation:", e.message);
   }
-} catch (e) {
-  // Ignored on read-only serverless environments like Vercel
-}
-try {
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
+  try {
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("Skipping local directory creation:", e.message);
   }
-} catch (e) {
-  // Ignored on read-only serverless environments like Vercel
 }
 
 // Global execution mutex to prevent concurrent backup jobs

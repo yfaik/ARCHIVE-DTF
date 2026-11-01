@@ -11,7 +11,18 @@ export const uploadDir = process.env.VERCEL
   ? path.join('/tmp', 'uploads', 'pdfs')
   : path.resolve(__dirname, '../uploads/pdfs');
 
-// Safe directory creator that NEVER crashes the process
+// Guard top-level mkdir: NEVER run top-level mkdir on serverless import
+if (!process.env.VERCEL) {
+  try {
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn("Skipping local directory creation:", err.message);
+  }
+}
+
+// Safe directory creator for on-demand file handling
 export function ensureUploadDir() {
   try {
     if (!fs.existsSync(uploadDir)) {
@@ -19,15 +30,12 @@ export function ensureUploadDir() {
     }
     return true;
   } catch (err) {
-    console.warn(`ℹ️ [UPLOAD DIR NOTICE] Répertoire d upload non modifiable (${uploadDir}):`, err.message);
+    console.warn("Skipping local directory creation:", err.message);
     return false;
   }
 }
 
-// Attempt to create directory safely at startup, ignoring read-only errors on serverless
-ensureUploadDir();
-
-// Choose disk storage targeting safe directory, or fallback gracefully
+// Multer storage with lazy on-demand directory creation inside destination
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     ensureUploadDir();

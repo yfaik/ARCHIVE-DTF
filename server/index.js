@@ -126,12 +126,14 @@ const uploadsBaseDir = process.env.VERCEL
   ? path.join('/tmp', 'uploads')
   : path.resolve(__dirname, 'uploads');
 
-try {
-  if (!fs.existsSync(uploadPdfsDir)) {
-    fs.mkdirSync(uploadPdfsDir, { recursive: true });
+if (!process.env.VERCEL) {
+  try {
+    if (!fs.existsSync(uploadPdfsDir)) {
+      fs.mkdirSync(uploadPdfsDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("Skipping local directory creation:", e.message);
   }
-} catch (e) {
-  // Ignored in read-only serverless environment
 }
 try {
   app.use('/uploads/pdfs', express.static(uploadPdfsDir));

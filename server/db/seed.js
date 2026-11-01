@@ -27,19 +27,20 @@ export async function logUsersTable() {
 export async function seedDatabase() {
   console.log('🌱 Vérification de l état de la base PostgreSQL / Neon...');
 
-  // Ensure upload directory exists safely (skip failures in read-only serverless)
+  // Ensure upload directory exists safely (skip in serverless)
   const uploadDir = process.env.VERCEL
     ? path.join('/tmp', 'uploads', 'pdfs')
     : path.join(__dirname, '../uploads/pdfs');
-  try {
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
+  if (!process.env.VERCEL) {
+    try {
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
 
-    // Generate a valid dummy PDF file for testing if it does not exist
-    const dummyPdfPath = path.join(uploadDir, 'demo_document.pdf');
-    if (!fs.existsSync(dummyPdfPath)) {
-      const dummyPdfContent = `%PDF-1.4
+      // Generate a valid dummy PDF file for testing if it does not exist
+      const dummyPdfPath = path.join(uploadDir, 'demo_document.pdf');
+      if (!fs.existsSync(dummyPdfPath)) {
+        const dummyPdfContent = `%PDF-1.4
 1 0 obj <>/ProcSet[/PDF/Text/ImageB/ImageC/ImageI] >>/MediaBox[ 0 0 595.32 841.92] /Contents 4 0 R/Group<>/Tabs/S/StructParents 0>>
 endobj
 2 0 obj <>/Font<>/ProcSet[/PDF/Text/ImageB/ImageC/ImageI] >>/MediaBox[ 0 0 595.32 841.92] /Contents 5 0 R/Group<>/Tabs/S/StructParents 1>>
@@ -92,10 +93,11 @@ trailer
 startxref
 1146
 %%EOF`;
-      fs.writeFileSync(dummyPdfPath, dummyPdfContent);
+        fs.writeFileSync(dummyPdfPath, dummyPdfContent);
+      }
+    } catch (e) {
+      console.warn("Skipping local directory creation:", e.message);
     }
-  } catch (err) {
-    // Read-only filesystem on Vercel is ignored
   }
 
   // Ensure initial services exist
