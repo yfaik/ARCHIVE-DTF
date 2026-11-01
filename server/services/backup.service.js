@@ -10,16 +10,30 @@ import { notifyChefDivision } from './notification.service.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const backupDir = path.resolve(__dirname, '../backups');
-const uploadDir = path.resolve(__dirname, '../uploads/pdfs');
-const baseUploadDir = path.resolve(__dirname, '../uploads');
+const backupDir = process.env.VERCEL
+  ? path.join('/tmp', 'backups')
+  : path.resolve(__dirname, '../backups');
+const uploadDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads', 'pdfs')
+  : path.resolve(__dirname, '../uploads/pdfs');
+const baseUploadDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads')
+  : path.resolve(__dirname, '../uploads');
 
-// Ensure directories exist
-if (!fs.existsSync(backupDir)) {
-  fs.mkdirSync(backupDir, { recursive: true });
+// Ensure directories exist safely without throwing errors on read-only environments
+try {
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+  }
+} catch (e) {
+  // Ignored on read-only serverless environments like Vercel
 }
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (e) {
+  // Ignored on read-only serverless environments like Vercel
 }
 
 // Global execution mutex to prevent concurrent backup jobs
@@ -217,6 +231,10 @@ export function getDailyUploadFiles(targetDateStr = new Date().toISOString().spl
  * Scheduled Backup Cron (Every day at 17:00) -> 0 17 * * *
  */
 export function initBackupScheduler() {
+  if (process.env.VERCEL) {
+    console.log('ℹ️ [CRON] Environnement Serverless Vercel détecté : Planificateur Cron désactivé.');
+    return;
+  }
   cron.schedule('0 17 * * *', async () => {
     console.log('⏰ Exécution planifiée de la sauvegarde quotidienne PostgreSQL (17h00)...');
     try {

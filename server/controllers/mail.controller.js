@@ -762,11 +762,12 @@ export async function downloadPdf(req, res) {
     }
 
     const safeFilename = path.basename(filename);
-    const pdfsDir = path.resolve(__dirname, '../uploads/pdfs');
-    const pdfPath = path.resolve(pdfsDir, safeFilename);
+    const localPdfsDir = path.resolve(__dirname, '../uploads/pdfs');
+    const tmpPdfsDir = path.join('/tmp', 'uploads', 'pdfs');
 
-    if (!pdfPath.startsWith(pdfsDir)) {
-      return res.status(400).json({ error: 'Chemin de fichier invalide ou non autorisé.' });
+    let pdfPath = path.resolve(localPdfsDir, safeFilename);
+    if (!fs.existsSync(pdfPath) && fs.existsSync(path.resolve(tmpPdfsDir, safeFilename))) {
+      pdfPath = path.resolve(tmpPdfsDir, safeFilename);
     }
 
     if (!fs.existsSync(pdfPath)) {

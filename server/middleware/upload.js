@@ -6,21 +6,31 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const uploadDir = path.resolve(__dirname, '../uploads/pdfs');
-try {
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-  fs.accessSync(uploadDir, fs.constants.R_OK | fs.constants.W_OK);
-} catch (err) {
-  console.error('Erreur d accès au dossier uploads/pdfs:', err);
-}
+// In Vercel serverless environments (/var/task is read-only), use /tmp/uploads/pdfs
+export const uploadDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads', 'pdfs')
+  : path.resolve(__dirname, '../uploads/pdfs');
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
+// Safe directory creator that NEVER crashes the process
+export function ensureUploadDir() {
+  try {
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
+    return true;
+  } catch (err) {
+    console.warn(`ℹ️ [UPLOAD DIR NOTICE] Répertoire d upload non modifiable (${uploadDir}):`, err.message);
+    return false;
+  }
+}
+
+// Attempt to create directory safely at startup, ignoring read-only errors on serverless
+ensureUploadDir();
+
+// Choose disk storage targeting safe directory, or fallback gracefully
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    ensureUploadDir();
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
@@ -48,12 +58,14 @@ export const uploadPdf = multer({
 
 export function validatePdfMagicBytes(filePath) {
   try {
-    const buffer = Buffer.alloc(4);
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    const buffer = Buffer.alloc(5);
     const fd = fs.openSync(filePath, 'r');
-    fs.readSync(fd, buffer, 0, 4, 0);
+    fs.readSync(fd, buffer, 0, 5, 0);
     fs.closeSync(fd);
-    return buffer.toString('utf8').startsWith('%PDF');
+    return buffer.toString('utf8').startsWith('%PDF-');
   } catch (e) {
+    console.warn('⚠️ Erreur validation magic bytes PDF:', e.message);
     return false;
   }
 }

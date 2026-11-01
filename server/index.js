@@ -118,18 +118,27 @@ app.use('/api/backups', backupRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/services', serviceRoutes);
 
-// Serve static PDF uploads
-const uploadPdfsDir = path.resolve(__dirname, 'uploads/pdfs');
-const uploadsBaseDir = path.resolve(__dirname, 'uploads');
+// Serve static PDF uploads safely
+const uploadPdfsDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads', 'pdfs')
+  : path.resolve(__dirname, 'uploads/pdfs');
+const uploadsBaseDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads')
+  : path.resolve(__dirname, 'uploads');
+
 try {
   if (!fs.existsSync(uploadPdfsDir)) {
     fs.mkdirSync(uploadPdfsDir, { recursive: true });
   }
 } catch (e) {
-  console.error('Erreur création dossier uploads:', e);
+  // Ignored in read-only serverless environment
 }
-app.use('/uploads/pdfs', express.static(uploadPdfsDir));
-app.use('/uploads', express.static(uploadsBaseDir));
+try {
+  app.use('/uploads/pdfs', express.static(uploadPdfsDir));
+  app.use('/uploads', express.static(uploadsBaseDir));
+} catch (e) {
+  // Ignored
+}
 
 // Serve production frontend assets if built
 const distDir = path.join(__dirname, '../dist');
